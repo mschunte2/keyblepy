@@ -110,6 +110,8 @@ class Device(object):
             self.ev_nonce_received()
         elif isinstance(message, AnswerWithSecurity):
             pass
+        elif message==None:
+            pass
         elif isinstance(message, AnswerWithoutSecurity):
             pass
         elif isinstance(message, self.msg_type):
@@ -238,9 +240,9 @@ class Device(object):
 
         self.wait_for(StatusInfoMessage)
         self.ll.send(pdu)
-        if not self.wait(timeout):
+        if self.wait(timeout):
             self.disconnect()
-            return "failed to get the StatusInfoMessage"
+            return "Timeout - failed to get the StatusInfoMessage"
 
         info = self.decrypt(self.msg_pdu)
         from pprint import pprint
