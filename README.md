@@ -86,6 +86,50 @@ To remove the bond:
 sudo bluetoothctl -- remove <lock-mac>
 ```
 
+### Recovering from a lost bond
+
+Eqiva locks keep a finite number of BLE bond entries (hardware-dependent,
+roughly up to a handful). If another peer pairs and the lock's bond table
+is full, your peer can be evicted without warning. Symptoms:
+
+- Commands that previously finished in ~7 s suddenly take 40-90 s again,
+  because the lock has reverted to sending SMP Pairing Request post-
+  connect (which the bonded fast path was avoiding).
+- `bluepy` logs `Failed to connect to peripheral ... addr type: public`
+  while the lock still appears in `bluetoothctl scan le`.
+- `sudo bluetoothctl -- info <lock-mac>` still shows `Bonded: yes` on
+  *our* side (the stored LTK), but encrypting the link no longer works
+  because the lock no longer has a matching entry.
+
+Recovery is a full re-pair:
+
+```
+# 1. Wipe the stale bond on our side so BlueZ doesn't try to reuse it.
+sudo bluetoothctl -- remove <lock-mac>
+
+# 2. Put the lock back in pairing mode (the physical button sequence
+#    from the lock manual).
+
+# 3. Pair again exactly as for the first-time setup (see above).
+sudo bluetoothctl
+> select <controller-mac>
+> agent NoInputNoOutput
+> default-agent
+> scan le
+> pair <lock-mac>
+> trust <lock-mac>
+> exit
+```
+
+Once `info <lock-mac>` shows `Paired: yes` / `Bonded: yes` again, the
+`--sec-level medium` fast path resumes at its normal ~7 s per command.
+
+If you maintain multiple peers (phone + a Pi, or several Pis) on the
+same lock, be aware that bond evictions are driven by the lock, not by
+BlueZ. Pairing from a new peer can displace the oldest bond. Pair the
+lock with fewer peers, or factory-reset and re-pair all peers in order
+of priority, to keep the bond table predictable.
+
 ## Wireshark dissector
 
 The wireshark dissector is written in lua and can be loaded via cmdline
