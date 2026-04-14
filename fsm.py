@@ -298,7 +298,17 @@ class Device(object):
         }
 
     def open(self, timeout=10.0):
-        """ open it! """
+        """Send an OPEN command to the lock (motor retracts the bolt fully).
+
+        Connects on demand if disconnected. The lock replies with a
+        StatusInfoMessage carrying its new bolt position; the reply is
+        captured by wait_for/wait.
+
+        Returns the string 'open' on success, or a human-readable error
+        string on timeout. (Callers should treat any string != 'open' as
+        failure.) Use status() afterwards if you need the decoded bolt
+        position.
+        """
         if self.state == 'disconnected':
             self._connect()
             self.ready.wait()
@@ -314,6 +324,11 @@ class Device(object):
         return 'open'
 
     def unlock(self, timeout=10.0):
+        """Send an UNLOCK command to the lock (retract the bolt).
+
+        See open() for the reply-handling contract. Returns 'unlock' on
+        success or an error string on timeout.
+        """
         if self.state == 'disconnected':
             self._connect()
             self.ready.wait()
@@ -329,6 +344,11 @@ class Device(object):
         return 'unlock'
 
     def lock(self, timeout=10.0):
+        """Send a LOCK command to the lock (engage the bolt).
+
+        See open() for the reply-handling contract. Returns 'lock' on
+        success or an error string on timeout.
+        """
         if self.state == 'disconnected':
             self._connect()
             self.ready.wait()
