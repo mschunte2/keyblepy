@@ -284,8 +284,6 @@ class StatusRequestMessage(Send, Recv):
         # -> hour
         # -> minutes
         # -> seconds
-        print(self.date)
-        print(type(self.date))
         return pack(
             StatusRequestMessage.packformat,
             StatusRequestMessage.msgtype,
