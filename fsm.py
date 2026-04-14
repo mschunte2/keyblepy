@@ -8,6 +8,7 @@ import threading
 from exceptions import *
 from messages import *
 from encrypt import encrypt_message
+from struct import pack, unpack
 import random
 from lowerlayer import LowerLayer
 from bluepy.btle import Peripheral, BTLEException
@@ -58,10 +59,29 @@ class Device(object):
         },
     ]
 
-    def __init__(self, mac, userid, userkey=None):
+    def __init__(self, mac, userid, userkey=None, iface=None, connect_timeout=None, sec_level=None):
+        """Construct a KeyBLE Device client.
+
+        :param mac:             lock MAC address ("XX:XX:XX:XX:XX:XX")
+        :param userid:          app-level user id (0..255) registered on the lock
+        :param userkey:         16-byte shared secret for this user (bytes/bytearray)
+        :param iface:           HCI interface index (e.g. 1 for hci1). Defaults to
+                                whichever adapter bluepy picks (usually hci0).
+        :param connect_timeout: seconds to wait for the LE connection to complete
+                                before giving up. None uses bluepy-helper default.
+        :param sec_level:       BlueZ security level for the GATT link -- one of
+                                "low", "medium", "high". Use "medium" when the lock
+                                has been BLE-bonded (via `bluetoothctl pair`) so
+                                that the link is encrypted with the stored LTK.
+                                Required for bonded operation; on an unbonded lock
+                                the default (None / "low") is correct.
+        """
         # should it raise Exception on invalid data?
         self.ignore_invalid = False
         self.mac = mac
+        self.iface = iface
+        self.connect_timeout = connect_timeout
+        self.sec_level = sec_level
         self.ll = None
         self.machine = TimeoutMachine(self,
                                       states=Device.states,
@@ -114,7 +134,7 @@ class Device(object):
             pass
         elif isinstance(message, AnswerWithoutSecurity):
             pass
-        elif isinstance(message, self.msg_type):
+        elif self.msg_type is not None and isinstance(message, self.msg_type):
             self.msg_pdu = message
             self.msg.set()
         else:
@@ -124,7 +144,7 @@ class Device(object):
         if self.state != 'disconnected':
             return
 
-        self.ll = LowerLayer(self.mac)
+        self.ll = LowerLayer(self.mac, iface=self.iface, connect_timeout=self.connect_timeout, sec_level=self.sec_level)
         self.ll.set_on_receive(self._on_receive)
         self.ll.set_on_error(self._on_error)
         self.ll.connect()
@@ -155,29 +175,43 @@ class Device(object):
         self.security_counter += 1
         return pdu
 
-    def decrypt_message(self, data):
-        """ a message is [1 byte id][x byte cryptdata][2 byte counter][4 byte auth] """
-        # check message_security_counter
-        # check authenticate_value
+    def _decrypt_received(self, raw):
+        """Decrypt an encrypted reply received from the lock.
 
-        if len(data) < 7:
-            raise InvalidData("Message to short")
+        Frame layout (notify characteristic payload after fragment header):
+            [1 byte msgtype][N byte ciphertext][2 byte counter][4 byte MAC]
 
-        message_id = data[0:1]
-        message_counter = unpack('>H', data[-6, -4])
-        message_auth = unpack_from('>Q', data[-4:])
-        if message_counter <= self.remote_security_counter:
-            log.info("Invalid message counter")
-            return False
+        Returns the N-byte plaintext body, or None if the frame is malformed
+        or its security counter has already been seen (replay guard).
 
-        self.remote_security_counter = message_counter
-        pdu = crypt_data(data[1:-6], message_id, self.local_nonce, self.remote_security_counter, self.userkey)
-        computed_authentication_value = compute_authentication_value(pdu, message_id, self.local_nonce, self.remote_security_counter, self.userkey)
-        if compute_authentication_value != message_auth:
-            log.info("Invalid message auth")
-            return False
+        crypt_data() is symmetric: it rebuilds the AES-CTR keystream from
+        (msgtype, our session nonce, peer counter, user key) and XORs it
+        with the ciphertext, producing the plaintext in the same call that
+        was used to encrypt on the sending side.
+        """
+        from encrypt import crypt_data
+        if raw is None or len(raw) < 15:
+            return None
+        msg_type_id = raw[0]
+        cryptdata = raw[1:-6]
+        counter = unpack(">H", raw[-6:-4])[0]
+        if counter <= self.remote_security_counter:
+            LOG.info("Stale security counter %d <= %d", counter, self.remote_security_counter)
+            return None
+        self.remote_security_counter = counter
+        return bytes(crypt_data(cryptdata, msg_type_id, self.nonce, counter, bytes(self.userkey)))
 
-        return pdu
+    @staticmethod
+    def _parse_lock_status(plaintext):
+        """Extract a human-readable lock state from a decrypted StatusInfoMessage.
+
+        The lock encodes its current bolt position in the low 3 bits of
+        plaintext[2]. Mapping matches the reference JS implementation
+        (keyble-node).
+        """
+        names = {0: "UNKNOWN", 1: "MOVING", 2: "UNLOCKED", 3: "LOCKED", 4: "OPENED"}
+        code = plaintext[2] & 0x07
+        return names.get(code, "code-%d" % code)
 
     # interface
     def pair(self, userkey, cardkey):
@@ -224,8 +258,18 @@ class Device(object):
     def disconnect(self):
         self.ll.disconnect()
 
-    def status(self, timeout=10.0):
-        """ returns the status of the lock or raise an exception """
+    def status(self, timeout=30.0):
+        """Query and return the lock's current status.
+
+        Returns a dict::
+
+            {"lock_status": "UNLOCKED"|"LOCKED"|"OPENED"|"MOVING"|"UNKNOWN",
+             "raw":         hex-encoded 8-byte plaintext body,
+             "counter":     peer security counter of the reply frame}
+
+        Returns False on timeout or on a malformed/replayed reply.
+        :param timeout: seconds to wait for the reply after sending the request.
+        """
         self.require_autenticate = True
 
         if self.state == 'disconnected':
@@ -244,11 +288,14 @@ class Device(object):
             self.disconnect()
             return "Timeout - failed to get the StatusInfoMessage"
 
-        info = self.decrypt(self.msg_pdu)
-        from pprint import pprint
-        pprint(info)
-
-        return "No Status Yet"
+        plaintext = self._decrypt_received(getattr(self.msg_pdu, "raw", None))
+        if plaintext is None:
+            return False
+        return {
+            "lock_status": self._parse_lock_status(plaintext),
+            "raw": plaintext.hex(),
+            "counter": self.remote_security_counter,
+        }
 
     def open(self, timeout=10.0):
         """ open it! """
@@ -258,6 +305,7 @@ class Device(object):
 
         message = CommandMessage(COMMAND_OPEN)
         pdu = self.encrypt_message(message)
+        self.wait_for(StatusInfoMessage)
         self.ll.send(pdu)
         if not self.wait(timeout):
             self.disconnect()
@@ -272,6 +320,7 @@ class Device(object):
 
         message = CommandMessage(COMMAND_UNLOCK)
         pdu = self.encrypt_message(message)
+        self.wait_for(StatusInfoMessage)
         self.ll.send(pdu)
         if not self.wait(timeout):
             self.disconnect()
@@ -286,6 +335,7 @@ class Device(object):
 
         message = CommandMessage(COMMAND_LOCK)
         pdu = self.encrypt_message(message)
+        self.wait_for(StatusInfoMessage)
         self.ll.send(pdu)
         if not self.wait(timeout):
             self.disconnect()

@@ -67,12 +67,12 @@ def ui_pair(device, userid, userkey, cardkey):
     device = Device(device, userid=userid)
     device.pair(_userkey, _cardkey)
 
-def ui_command(device, userid, userkey, command):
+def ui_command(device, userid, userkey, command, iface=None, connect_timeout=None, sec_level=None):
     _userkey = binascii.unhexlify(userkey)
     if len(_userkey) != 16:
         raise RuntimeError("Userkey is too short or too long. Expecting 16 byte encode as hex (32 characters)")
 
-    device = Device(device, userid=userid, userkey=_userkey)
+    device = Device(device, userid=userid, userkey=_userkey, iface=iface, connect_timeout=connect_timeout, sec_level=sec_level)
 
     if command == "open":
         device.open()
@@ -84,16 +84,17 @@ def ui_command(device, userid, userkey, command):
     print("device %s" % str(command))
     os._exit(0)
 
-def ui_status(device, userid, userkey):
+def ui_status(device, userid, userkey, iface=None, connect_timeout=None, sec_level=None, timeout=30.0):
     _userkey = binascii.unhexlify(userkey)
     if len(_userkey) != 16:
         raise RuntimeError("Userkey is too short or too long. Expecting 16 byte encode as hex (32 characters)")
 
-    device = Device(device, userid=userid, userkey=_userkey)
-    status = device.status()
+    device = Device(device, userid=userid, userkey=_userkey, iface=iface, connect_timeout=connect_timeout, sec_level=sec_level)
+    status = device.status(timeout=timeout)
     if not status:
         raise RuntimeError("Can not get the status")
     print("device status = %s" % str(status))
+    os._exit(0)
 
 def set_timeout(timeout):
     """ exit after timeout seconds """
@@ -121,6 +122,9 @@ def main():
     parser.add_argument('--qrdata', dest='qrdata', help='The QR Code as data. This contains the mac,cardkey,serial.')
     parser.add_argument('--verbose', dest='verbose', action='store_true', help='Enable debug logging.')
     parser.add_argument('--timeout', dest='timeout', help='Exit after x seconds even when the operation hasn\'t finished.', type=float)
+    parser.add_argument('--iface', dest='iface', help='HCI interface index (e.g. 1 for hci1)', type=int, default=None)
+    parser.add_argument('--connect-timeout', dest='connect_timeout', help='BLE connect timeout seconds', type=float, default=None)
+    parser.add_argument('--sec-level', dest='sec_level', help='BLE security level: low|medium|high', choices=['low','medium','high'], default=None)
 
     args = parser.parse_args()
     if args.verbose:
@@ -133,13 +137,13 @@ def main():
     if args.scan:
         ui_scan()
     if args.status:
-        ui_status(args.device, args.userid, args.userkey)
+        ui_status(args.device, args.userid, args.userkey, args.iface, args.connect_timeout, args.sec_level, args.timeout or 30.0)
     if args.open:
-        ui_command(args.device, args.userid, args.userkey, "open")
+        ui_command(args.device, args.userid, args.userkey, "open", args.iface, args.connect_timeout, args.sec_level)
     if args.lock:
-        ui_command(args.device, args.userid, args.userkey, "lock")
+        ui_command(args.device, args.userid, args.userkey, "lock", args.iface, args.connect_timeout, args.sec_level)
     if args.unlock:
-        ui_command(args.device, args.userid, args.userkey, "unlock")
+        ui_command(args.device, args.userid, args.userkey, "unlock", args.iface, args.connect_timeout, args.sec_level)
     if args.discover:
         ui_discover(args.device)
     if args.register:

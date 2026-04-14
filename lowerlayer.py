@@ -101,7 +101,17 @@ class LowerLayer(object):
         },
     ]
 
-    def __init__(self, mac):
+    def __init__(self, mac, iface=None, connect_timeout=None, sec_level=None):
+        """Low-level BLE transport for the KeyBLE protocol.
+
+        :param mac:             lock MAC address.
+        :param iface:           HCI interface index (None = bluepy default).
+        :param connect_timeout: seconds for bluepy.Peripheral.connect() timeout.
+        :param sec_level:       BlueZ security level ("low"|"medium"|"high");
+                                "medium" requests encryption with the stored LTK
+                                after connect, which avoids the ~40s SMP stall
+                                observed on unbonded first connects.
+        """
         self.state = None
         self.machine = TimeoutMachine(self,
                                       states=LowerLayer.states,
@@ -114,6 +124,9 @@ class LowerLayer(object):
 
         # ble
         self._mac = mac
+        self._iface = iface
+        self._connect_timeout = connect_timeout
+        self._sec_level = sec_level
         self._ble_node = Peripheral()
         self._ble_node.setDelegate(self)
         # the ble service
@@ -197,6 +210,10 @@ class LowerLayer(object):
                 return
             message_cls = MESSAGES[message_type]
             message = message_cls.decode(message)
+            try:
+                message.raw = raw
+            except Exception:
+                pass
             LOG.info("Received decoded message %s <- %s", message, raw.hex())
         except Exception as exp:
             LOG.info("Receive exception %s", exp)
@@ -282,11 +299,24 @@ class LowerLayer(object):
         pass
 
     def _connect(self):
-        self._ble_node.connect(self._mac)
+        """Open a GATT session to the lock and subscribe to notifications.
+
+        After bluepy.Peripheral.connect(), we optionally promote the link to
+        an encrypted one via setSecurityLevel(), then resolve the two keyble
+        characteristics and enable notifications on LOCK_RECV_CHAR by writing
+        0x0001 to its CCCD (0x2902). Without the CCCD write the lock never
+        sends replies and every high-level call hangs on wait().
+        """
+        self._ble_node.connect(self._mac, "public", self._iface, self._connect_timeout)
+        if self._sec_level:
+            self._ble_node.setSecurityLevel(self._sec_level)
         self._ble_node.getServices()
         self._ble_service = self._ble_node.getServiceByUUID(LOCK_SERVICE)
         self._ble_send = self._ble_service.getCharacteristics(LOCK_SEND_CHAR)[0]
         self._ble_recv = self._ble_service.getCharacteristics(LOCK_RECV_CHAR)[0]
+        # Enable notifications on the "from lock" characteristic.
+        cccd = self._ble_recv.getDescriptors(forUUID=0x2902)[0]
+        cccd.write(b"\x01\x00", withResponse=True)
         self.ev_connected()
 
     def work(self):
