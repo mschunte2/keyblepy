@@ -81,7 +81,7 @@ def ui_command(device, userid, userkey, command, iface=None, connect_timeout=Non
     elif command == "lock":
         device.lock()
 
-    print("device %s" % str(command))
+    print("device %sed" % command)
     os._exit(0)
 
 def ui_status(device, userid, userkey, iface=None, connect_timeout=None, sec_level=None, timeout=30.0):
