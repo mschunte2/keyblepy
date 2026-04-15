@@ -149,6 +149,21 @@ def main():
     if args.register:
         if not args.qrdata:
             raise RuntimeError("You need to specify --qrdata")
+        # --user-key and --user-id are both required for registration:
+        # the card-key in --qrdata authenticates the registration request,
+        # but the user-key (16-byte shared secret that every subsequent
+        # status/lock/unlock call will be signed with) must be supplied by
+        # the caller -- this tool does not generate one. Fail fast with a
+        # clear message instead of crashing inside unhexlify(None).
+        # See https://github.com/lynxis/keyblepy/issues/3.
+        if not args.userkey:
+            raise RuntimeError(
+                "You need to specify --user-key (32 hex chars). "
+                "Generate one with: openssl rand -hex 16")
+        if args.userid is None:
+            raise RuntimeError(
+                "You need to specify --user-id (1..255). "
+                "Pick a free slot on the lock.")
 
         # M001234556678K01234567890ABCDEF023456789ABCDEF0123456789
         rex = re.compile(r'^M([0-9A-F]{12})K([0-9A-F]{32})([0-9A-Z]{10})$')
