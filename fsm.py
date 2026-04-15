@@ -242,7 +242,12 @@ class Device(object):
         self.msg.clear()
 
     def wait(self, timeout=None):
-        self.msg.wait(timeout)
+        """Wait up to `timeout` seconds for the reply registered via wait_for().
+
+        Returns True if the reply arrived before timeout, False on timeout
+        (same semantics as threading.Event.wait).
+        """
+        return self.msg.wait(timeout)
 
     def discover(self):
         """ return bootloader and application info """
@@ -284,9 +289,9 @@ class Device(object):
 
         self.wait_for(StatusInfoMessage)
         self.ll.send(pdu)
-        if self.wait(timeout):
+        if not self.wait(timeout):
             self.disconnect()
-            return "Timeout - failed to get the StatusInfoMessage"
+            return False
 
         plaintext = self._decrypt_received(getattr(self.msg_pdu, "raw", None))
         if plaintext is None:
