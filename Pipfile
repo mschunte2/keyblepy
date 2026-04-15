@@ -1,0 +1,24 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+# BLE transport. 1.3.0 is the PyPI HEAD and lacks a `timeout` parameter
+# on Peripheral.connect(); LowerLayer falls back gracefully at runtime.
+# If you want connect-timeout support, install bluepy editable from a
+# newer checkout:  pip install -e /path/to/bluepy-source
+bluepy = "*"
+
+# Finite-state machine driving the message exchange layer.
+transitions = "*"
+
+# AES primitives used by the keyble protocol. pycryptodome is the
+# maintained successor to pycrypto; both expose the same `Crypto`
+# namespace, so either one works.
+pycryptodome = "*"
+
+[dev-packages]
+
+[requires]
+python_version = "3"
