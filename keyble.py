@@ -75,12 +75,17 @@ def ui_command(device, userid, userkey, command, iface=None, connect_timeout=Non
     device = Device(device, userid=userid, userkey=_userkey, iface=iface, connect_timeout=connect_timeout, sec_level=sec_level)
 
     if command == "open":
-        device.open()
+        result = device.open()
     elif command == "unlock":
-        device.unlock()
+        result = device.unlock()
     elif command == "lock":
-        device.lock()
+        result = device.lock()
+    else:
+        result = None
 
+    if result not in ("open", "unlock", "lock"):
+        print("device %s failed: %s" % (command, result), file=sys.stderr)
+        os._exit(1)
     print("device %sed" % command)
     os._exit(0)
 
