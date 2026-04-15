@@ -307,7 +307,18 @@ class LowerLayer(object):
         0x0001 to its CCCD (0x2902). Without the CCCD write the lock never
         sends replies and every high-level call hangs on wait().
         """
-        self._ble_node.connect(self._mac, "public", self._iface, self._connect_timeout)
+        try:
+            self._ble_node.connect(self._mac, "public", self._iface, self._connect_timeout)
+        except TypeError:
+            # bluepy 1.3.0 (PyPI) has no `timeout` parameter on connect().
+            # Fall back to the legacy 3-arg call.
+            if self._connect_timeout is not None:
+                LOG.warning(
+                    "bluepy.Peripheral.connect() does not accept timeout; "
+                    "--connect-timeout=%s will be ignored. Upgrade to a "
+                    "bluepy with timeout support to use it.",
+                    self._connect_timeout)
+            self._ble_node.connect(self._mac, "public", self._iface)
         if self._sec_level:
             self._ble_node.setSecurityLevel(self._sec_level)
         self._ble_node.getServices()
