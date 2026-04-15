@@ -99,8 +99,11 @@ device.unlock()     # returns 'unlock'
 device.lock()       # returns 'lock'
 ```
 
-All four operations open a fresh BLE connection on demand and close it
-on completion.
+All four operations open a fresh BLE connection on demand. Successful
+completion does not currently guarantee an immediate disconnect, so
+callers should either drop the Device reference (the lock's own idle
+timer will tear down the link after ~30s) or manage teardown explicitly.
+Timeout paths call disconnect() as part of failure handling.
 
 ## Pairing and encrypted connections
 
