@@ -130,7 +130,7 @@ class Device(object):
             self.ev_nonce_received()
         elif isinstance(message, AnswerWithSecurity):
             pass
-        elif message==None:
+        elif message is None:
             pass
         elif isinstance(message, AnswerWithoutSecurity):
             pass
