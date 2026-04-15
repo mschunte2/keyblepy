@@ -189,17 +189,30 @@ class Device(object):
         with the ciphertext, producing the plaintext in the same call that
         was used to encrypt on the sending side.
         """
-        from encrypt import crypt_data
+        from encrypt import crypt_data, compute_authentication_value
         if raw is None or len(raw) < 15:
             return None
         msg_type_id = raw[0]
         cryptdata = raw[1:-6]
         counter = unpack(">H", raw[-6:-4])[0]
+        received_mac = bytes(raw[-4:])
+        # Replay guard: counters are strictly increasing per session.
         if counter <= self.remote_security_counter:
             LOG.info("Stale security counter %d <= %d", counter, self.remote_security_counter)
             return None
+        plaintext = bytes(crypt_data(cryptdata, msg_type_id, self.nonce, counter, bytes(self.userkey)))
+        # Authenticate the frame. AES-CTR alone is malleable -- without this
+        # check, a tampered ciphertext decrypts to arbitrary plaintext that
+        # the caller would parse as status.
+        expected_mac = bytes(compute_authentication_value(
+            plaintext, msg_type_id, self.nonce, counter, bytes(self.userkey)))
+        if expected_mac != received_mac:
+            LOG.info("MAC mismatch on received frame; dropping (expected %s, got %s)",
+                     expected_mac.hex(), received_mac.hex())
+            return None
+        # Burn the counter only after authentication.
         self.remote_security_counter = counter
-        return bytes(crypt_data(cryptdata, msg_type_id, self.nonce, counter, bytes(self.userkey)))
+        return plaintext
 
     @staticmethod
     def _parse_lock_status(plaintext):
