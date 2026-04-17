@@ -15,6 +15,7 @@ import traceback
 
 from bluepy.btle import Scanner, DefaultDelegate
 from fsm import Device
+from messages import USERID_AUTO_ASSIGN
 
 # exit on any exception
 def global_exception_hook(ex_type, ex, trace):
@@ -54,8 +55,11 @@ def ui_discover(device, userid=1):
     print(infos)
 
 def ui_pair(device, userid, userkey, cardkey):
-    if userid == None:
-        userid = 0xff
+    # Default to the auto-assign sentinel when the caller didn't pick a
+    # slot -- the lock will then choose a free slot itself and tell us
+    # which one in the ConnectionInfoMessage. See messages.USERID_AUTO_ASSIGN.
+    if userid is None:
+        userid = USERID_AUTO_ASSIGN
 
     # TODO: check userkey, cardkey, userid
     _userkey = binascii.unhexlify(userkey)
@@ -74,7 +78,12 @@ def ui_pair(device, userid, userkey, cardkey):
         print("Registration failed -- check the lock LED (no beep + no LED-stop) and retry.",
               file=sys.stderr)
         os._exit(1)
-    print("Registration successful: lock acknowledged user_id={}".format(userid))
+    # device.userid was overwritten by fsm._on_receive with the real
+    # slot the lock picked (when we sent the auto-assign sentinel).
+    # Emit one machine-readable line that wrappers like register-user.sh
+    # can grep for without parsing the verbose log.
+    print("REGISTRATION_SUCCESS user_id={} user_key={}".format(
+        device.userid, userkey))
     os._exit(0)
 
 def ui_command(device, userid, userkey, command, iface=None, connect_timeout=None, sec_level=None):
@@ -128,8 +137,14 @@ def main():
     parser.add_argument('--scan', dest='scan', action='store_true', help='Scan for KeyBLEs')
     parser.add_argument('--device', dest='device', help='Device MAC address')
     parser.add_argument('--discover', dest='discover', action='store_true', help='Ask the bootloader/app version')
-    parser.add_argument('--user-id', dest='userid', help='The user id', type=int)
-    parser.add_argument('--user-key', dest='userkey', help='The user key (a rsa key generated when registering the user)')
+    parser.add_argument(
+        '--user-id', dest='userid', type=int,
+        help=('User-id slot (0..254). Required for status/open/unlock/lock. '
+              'For --register, omit this flag to let the lock auto-assign '
+              'a free slot (recommended); the assigned slot is printed on '
+              'success in the REGISTRATION_SUCCESS line and must be written '
+              'to .env for subsequent commands.'))
+    parser.add_argument('--user-key', dest='userkey', help='The user key (16-byte shared secret as 32 hex chars). For --register, generate fresh with: openssl rand -hex 16')
     parser.add_argument('--status', dest='status', action='store_true', help='Shows the status. Require --user-id --user-key --device.')
     parser.add_argument('--open', dest='open', action='store_true', help='Unlock and Open. Require --user-id --user-key --device.')
     parser.add_argument('--lock', dest='lock', action='store_true', help='Lock. Require --user-id --user-key --device.')

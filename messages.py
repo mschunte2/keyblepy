@@ -25,6 +25,22 @@ MESSAGE_COMMAND = 0x87
 MESSAGE_USER_INFO = 0x8f
 MESSAGE_USER_NAME_SET = 0x90
 
+# Sentinel user-id meaning "lock, please auto-assign me a free slot
+# and tell me which one in the ConnectionInfoMessage you reply with."
+# The lock interprets this value as a *request* rather than a literal
+# slot number; valid real slots are 0..254. Used by the registration
+# codepath only -- for operational (status/lock/unlock) calls a real
+# slot number is required, otherwise the encrypted-message auth tag
+# will be computed against the wrong identity and the lock will reject.
+#
+# Wire-side: this byte goes into ConnectionRequestMessage.userid
+# (1 byte after the 0x02 msgtype). When the lock sees 0xff it returns
+# a ConnectionInfoMessage carrying the slot it chose; the FSM then
+# overwrites self.userid with that real value before the subsequent
+# PairingRequestMessage is constructed (so the auth tag and the
+# wire-level userid byte match what the lock expects).
+USERID_AUTO_ASSIGN = 0xff
+
 COMMAND_LOCK = 0
 COMMAND_UNLOCK = 1
 COMMAND_OPEN = 2

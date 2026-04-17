@@ -124,7 +124,11 @@ class Device(object):
             self.remote_nonce = message.remote_session_nonce
             self.remote_nonce_byte = bytearray(pack('>Q', self.remote_nonce))
             self.connection_info = message
-            if self.userid == 0xff:
+            # If we sent the auto-assign sentinel in ConnectionRequest,
+            # the lock returns the real slot it picked here -- adopt
+            # it so PairingRequest goes out with a real userid byte
+            # (and the auth tag is computed over that real byte).
+            if self.userid == USERID_AUTO_ASSIGN:
                 LOG.info("Using new Userid %d" % message.userid)
                 self.userid = message.userid
             self.ev_nonce_received()
