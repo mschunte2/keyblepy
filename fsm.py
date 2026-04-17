@@ -253,7 +253,18 @@ class Device(object):
         LOG.info("Starting to pair")
 
         self._connect()
-        self.ready.wait()
+        # Bound the wait so a BLE-level connect failure (which the
+        # lower-layer worker swallows into _on_error) doesn't leave us
+        # blocked here forever. Without a timeout, the only escape was
+        # the script-level --timeout flag (~90s default).
+        if not self.ready.wait(timeout):
+            LOG.error("Pairing aborted: BLE connection / nonce exchange "
+                      "did not complete within %.1fs", timeout)
+            try:
+                self.disconnect()
+            except Exception:
+                pass
+            return False
         LOG.info("userkey: %s %s" % (userkey, str(type(userkey))))
         _userkey = bytearray(userkey)
         _cardkey = bytearray(cardkey)
