@@ -76,14 +76,19 @@ def ui_pair(device, userid, userkey, cardkey):
         # (e.g. a wedged bluepy-helper). pair() already enqueues a
         # MSG_DISCONNECT in the clean case.
         print("Registration failed -- check the lock LED (no beep + no LED-stop) and retry.",
-              file=sys.stderr)
+              file=sys.stderr, flush=True)
         os._exit(1)
     # device.userid was overwritten by fsm._on_receive with the real
     # slot the lock picked (when we sent the auto-assign sentinel).
     # Emit one machine-readable line that wrappers like register-user.sh
-    # can grep for without parsing the verbose log.
+    # can grep for without parsing the verbose log. flush=True is
+    # essential: when stdout is piped (e.g. through `tee` in
+    # register-user.sh) Python block-buffers it, and os._exit() does
+    # NOT flush -- so without the explicit flush this whole line would
+    # be silently dropped on exit and the wrapper would (wrongly)
+    # report failure on a successful pairing.
     print("REGISTRATION_SUCCESS user_id={} user_key={}".format(
-        device.userid, userkey))
+        device.userid, userkey), flush=True)
     os._exit(0)
 
 def ui_command(device, userid, userkey, command, iface=None, connect_timeout=None, sec_level=None):
