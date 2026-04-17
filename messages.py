@@ -194,20 +194,43 @@ class AnswerWithoutSecurity(Send, Recv):
         return cls(answer)
 
 class AnswerWithSecurity(Send, Recv):
-    """ An Answer to our last command """
+    """ An encrypted answer to our last command (msgtype 0x81).
+
+    The lock sends this back after a successful PairingRequest (and
+    after other secured operations). The body is encrypted with the
+    user_key that was just established and contains a status byte plus
+    a 4-byte auth tag. The original implementation here had three
+    bugs that combined to make the registration codepath think it had
+    failed even when the lock had already accepted the new user:
+
+    - `__init__` raised `InvalidData` for any non-zero answer (the
+      check was `if answer:` instead of `if answer > 255:`), making
+      it impossible to construct an instance with a real status byte.
+    - `encode` used `FragmentAck.msgtype` (0x00) instead of `cls.msgtype`
+      (0x81), producing a payload the lock would never accept.
+    - `decode` checked the incoming byte against
+      `AnswerWithoutSecurity.msgtype` (0x01) rather than `cls.msgtype`,
+      so every real success response was rejected with "Wrong msgtype"
+      and the FSM treated it as garbage.
+
+    We don't validate the auth tag or decrypt the body here -- the
+    fact that the lock sent a 0x81 message in response to our
+    PairingRequest is itself a strong success signal.
+    """
     msgtype = 0x81
+
     def __init__(self, answer):
-        # uint8
-        if answer:
+        # uint8 status code (0 = success, non-zero = error code)
+        if answer > 255:
             raise InvalidData("answer does not fit into a byte")
         self.answer = answer
 
     def encode(self):
-        return pack('>BB', FragmentAck.msgtype, self.answer)
+        return pack('>BB', self.msgtype, self.answer)
 
     @classmethod
     def decode(cls, data):
-        if data[0] != AnswerWithoutSecurity.msgtype:
+        if data[0] != cls.msgtype:
             raise InvalidData("Wrong msgtype")
 
         _msgtype, answer = unpack_from('>BB', data)

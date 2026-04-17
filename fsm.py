@@ -129,11 +129,20 @@ class Device(object):
                 self.userid = message.userid
             self.ev_nonce_received()
         elif isinstance(message, AnswerWithSecurity):
-            pass
+            # Lock's encrypted success response (e.g. registration ack).
+            # Surface it so any code waiting on `self.msg` unblocks --
+            # without this the registration script hangs until timeout
+            # even though the lock has already accepted the request.
+            self.msg_pdu = message
+            self.msg.set()
         elif message is None:
             pass
         elif isinstance(message, AnswerWithoutSecurity):
-            pass
+            # Lock's unencrypted answer (e.g. error code 0x81 on
+            # PairingRequest rejection). Also surface so the caller
+            # can distinguish failure from "no response at all".
+            self.msg_pdu = message
+            self.msg.set()
         elif self.msg_type is not None and isinstance(message, self.msg_type):
             self.msg_pdu = message
             self.msg.set()
