@@ -177,10 +177,12 @@ def main():
             raise RuntimeError(
                 "You need to specify --user-key (32 hex chars). "
                 "Generate one with: openssl rand -hex 16")
-        if args.userid is None:
-            raise RuntimeError(
-                "You need to specify --user-id (1..255). "
-                "Pick a free slot on the lock.")
+        # --user-id is optional: ui_pair maps None -> 0xff, which tells
+        # the lock to auto-assign the next free slot. The chosen slot is
+        # surfaced via fsm._on_receive (look for "Using new Userid N" in
+        # the verbose log) and must be written back to .env afterwards
+        # so that subsequent encrypted commands authenticate as that
+        # slot.
 
         # M001234556678K01234567890ABCDEF023456789ABCDEF0123456789
         rex = re.compile(r'^M([0-9A-F]{12})K([0-9A-F]{32})([0-9A-Z]{10})$')
