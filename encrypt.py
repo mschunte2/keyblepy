@@ -70,13 +70,21 @@ def compute_authentication_value(message_data, message_type_id, session_nonce, s
     for i in range(0, padded_length, 16):
         encrypted_xor_data = _aes_encrypt(user_key, xor_array(encrypted_xor_data, padded_data, i))
 
-    # xor array
+    # Final CCM A_0 block, used to derive the 4-byte authentication tag.
+    # Reference oyooyo/keyble (keyble.js) builds this as exactly 16 bytes
+    # [Flags=1, Nonce(13), Counter=0,0]. Earlier versions of this file
+    # appended an extra `pack('>H', padded_length)` here, growing the
+    # input to 18 bytes and forcing _pad_array to round it up to a
+    # second AES block. The first-block ciphertext (and therefore the
+    # auth tag) then differed from the JS reference, which the lock
+    # accepts -- so the lock rejected our PairingRequestMessage with
+    # AnswerWithoutSecurity 0x81 and dropped the connection. Removing
+    # the extra two bytes brings keyblepy in line with keyble.js.
     tmp = bytearray()
     tmp.append(0x01)
     tmp.extend(nonce)
     tmp.append(0x00)
     tmp.append(0x00)
-    tmp.extend(pack('>H', padded_length))
     tmp = _pad_array(tmp, 16, 0)
     return xor_array(
         encrypted_xor_data[0:4],
