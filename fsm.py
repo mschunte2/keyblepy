@@ -269,7 +269,17 @@ class Device(object):
         self.msg.clear()
         self.msg_pdu = None
         self.ll.send(pdu)
-        if not self.msg.wait(timeout):
+        got_answer = self.msg.wait(timeout)
+        # Always tear down the GATT session before returning. The lower-
+        # layer worker is a non-daemon thread that loops in
+        # waitForNotifications until MSG_DISCONNECT is enqueued; without
+        # this call the script would block on interpreter shutdown for
+        # ~60s waiting for the lock's idle-disconnect to cascade.
+        try:
+            self.disconnect()
+        except Exception:
+            pass
+        if not got_answer:
             LOG.error("Pairing timed out waiting for lock answer")
             return False
         if isinstance(self.msg_pdu, AnswerWithoutSecurity):

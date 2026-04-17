@@ -65,12 +65,17 @@ def ui_pair(device, userid, userkey, cardkey):
     if len(_cardkey) != 16:
         raise RuntimeError("Cardkey is too short or too long. Expecting 16 byte encode as hex (32 characters)")
     device = Device(device, userid=userid)
-    if not device.pair(_userkey, _cardkey):
-        # device.pair returns False on lock-rejection or timeout; surface
-        # via non-zero exit so register-user.sh sees the failure and
-        # callers can distinguish from success.
-        raise SystemExit("Registration failed -- check the lock LED (no beep + no LED-stop) and retry.")
+    success = device.pair(_userkey, _cardkey)
+    if not success:
+        # Match the other ui_* helpers: use os._exit so we don't block on
+        # any non-daemon thread that lingered after pair()'s teardown
+        # (e.g. a wedged bluepy-helper). pair() already enqueues a
+        # MSG_DISCONNECT in the clean case.
+        print("Registration failed -- check the lock LED (no beep + no LED-stop) and retry.",
+              file=sys.stderr)
+        os._exit(1)
     print("Registration successful: lock acknowledged user_id={}".format(userid))
+    os._exit(0)
 
 def ui_command(device, userid, userkey, command, iface=None, connect_timeout=None, sec_level=None):
     _userkey = binascii.unhexlify(userkey)
