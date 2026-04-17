@@ -236,11 +236,19 @@ class Device(object):
         return names.get(code, "code-%d" % code)
 
     # interface
-    def pair(self, userkey, cardkey):
+    def pair(self, userkey, cardkey, timeout=30.0):
         """ :param user_key as bytearray (128 bit / 16 byte)
             :param card_Key the key from the card as bytearray (128 bit / 16 byte)
+            :param timeout seconds to wait for the lock's answer
 
-            a userid must be also given via the device class.
+            A userid must also be given via the device class.
+
+            Returns True if the lock acknowledged with AnswerWithSecurity
+            (encrypted success ack), False if it returned an
+            AnswerWithoutSecurity error code or timed out. The previous
+            implementation always returned True after sending and never
+            waited, so the caller (and the script) hung on the FSM's
+            connected-state timeout for both success and failure cases.
             """
         LOG.info("Starting to pair")
 
@@ -256,7 +264,18 @@ class Device(object):
             self.remote_nonce,
             self.security_counter,
             _cardkey).encode()
+        # Arm the message gate before sending so the answer (delivered
+        # asynchronously by the lower layer thread) doesn't race us.
+        self.msg.clear()
+        self.msg_pdu = None
         self.ll.send(pdu)
+        if not self.msg.wait(timeout):
+            LOG.error("Pairing timed out waiting for lock answer")
+            return False
+        if isinstance(self.msg_pdu, AnswerWithoutSecurity):
+            LOG.error("Lock rejected pairing: status=0x%02x", self.msg_pdu.answer)
+            return False
+        LOG.info("Pairing successful (lock acked with AnswerWithSecurity)")
         return True
 
     def wait_for(self, msg_type):

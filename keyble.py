@@ -65,7 +65,12 @@ def ui_pair(device, userid, userkey, cardkey):
     if len(_cardkey) != 16:
         raise RuntimeError("Cardkey is too short or too long. Expecting 16 byte encode as hex (32 characters)")
     device = Device(device, userid=userid)
-    device.pair(_userkey, _cardkey)
+    if not device.pair(_userkey, _cardkey):
+        # device.pair returns False on lock-rejection or timeout; surface
+        # via non-zero exit so register-user.sh sees the failure and
+        # callers can distinguish from success.
+        raise SystemExit("Registration failed -- check the lock LED (no beep + no LED-stop) and retry.")
+    print("Registration successful: lock acknowledged user_id={}".format(userid))
 
 def ui_command(device, userid, userkey, command, iface=None, connect_timeout=None, sec_level=None):
     _userkey = binascii.unhexlify(userkey)
