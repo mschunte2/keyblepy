@@ -99,6 +99,8 @@ def ui_status(device, userid, userkey, iface=None, connect_timeout=None, sec_lev
     if not status:
         raise RuntimeError("Can not get the status")
     print("device status = %s" % str(status))
+    if status.get("battery_low"):
+        print("device battery low")
     os._exit(0)
 
 def set_timeout(timeout):

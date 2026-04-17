@@ -282,8 +282,12 @@ class Device(object):
         Returns a dict::
 
             {"lock_status": "UNLOCKED"|"LOCKED"|"OPENED"|"MOVING"|"UNKNOWN",
+             "battery_low": True|False,
              "raw":         hex-encoded 8-byte plaintext body,
              "counter":     peer security counter of the reply frame}
+
+        battery_low is bit 7 of plaintext[1]; mapping matches the reference
+        JS implementation (oyooyo/keyble, message_types.js).
 
         Returns False on timeout or on a malformed/replayed reply.
         :param timeout: seconds to wait for the reply after sending the request.
@@ -311,6 +315,7 @@ class Device(object):
             return False
         return {
             "lock_status": self._parse_lock_status(plaintext),
+            "battery_low": bool(plaintext[1] & 0x80),
             "raw": plaintext.hex(),
             "counter": self.remote_security_counter,
         }
